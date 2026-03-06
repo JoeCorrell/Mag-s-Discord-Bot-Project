@@ -57,10 +57,19 @@ function checkBadWords(message, settings) {
     if (badWords.length === 0) return false;
 
     const content = message.content.toLowerCase();
-    return badWords.some(word => content.includes(word.toLowerCase()));
+    return badWords.some(word => {
+        const escaped = word.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(`\\b${escaped}\\b`, 'i');
+        return regex.test(content);
+    });
 }
 
+const EXEMPT_ROLE_NAMES = ['The Viking Ferret', 'Admin'];
+
 function isExempt(message, settings) {
+    if (message.member && message.member.permissions.has('Administrator')) return true;
+    if (message.member && message.member.roles.cache.some(r => EXEMPT_ROLE_NAMES.includes(r.name))) return true;
+
     const exemptRoles = JSON.parse(settings.automod_exempt_roles || '[]');
     const exemptChannels = JSON.parse(settings.automod_exempt_channels || '[]');
 

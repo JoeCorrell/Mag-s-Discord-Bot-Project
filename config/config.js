@@ -60,6 +60,18 @@ module.exports = {
         slotsEmojis: ['\uD83C\uDF52', '\uD83C\uDF4B', '\uD83C\uDF47', '\uD83D\uDD25', '\uD83D\uDC8E'],
     },
 
+    thunderstore: {
+        author: 'ProfMags',
+        community: 'valheim',
+        checkInterval: 300000, // 5 minutes
+        // Mods not yet indexed in the listing API (newly published)
+        extraMods: ['Valkyrie'],
+        // Channel name overrides when mod name doesn't auto-match
+        channelOverrides: {
+            'Valkyrie': 'valkyrie-mod-manager',
+        },
+    },
+
     modules: {
         moderation: 'mod_moderation',
         automod: 'mod_automod',

@@ -9,7 +9,7 @@ function runMigrations(db) {
             mod_logging        INTEGER DEFAULT 0,
             mod_welcome        INTEGER DEFAULT 0,
             mod_goodbye        INTEGER DEFAULT 0,
-            mod_leveling       INTEGER DEFAULT 0,
+            mod_leveling       INTEGER DEFAULT 1,
             mod_economy        INTEGER DEFAULT 0,
             mod_tickets        INTEGER DEFAULT 0,
             mod_reaction_roles INTEGER DEFAULT 1,
@@ -18,6 +18,7 @@ function runMigrations(db) {
             mod_music          INTEGER DEFAULT 0,
             mod_giveaways      INTEGER DEFAULT 1,
             mod_custom_cmds    INTEGER DEFAULT 1,
+            mod_thunderstore   INTEGER DEFAULT 0,
 
             -- Logging
             log_channel_id         TEXT,
@@ -244,7 +245,33 @@ function runMigrations(db) {
             created_at    TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_reminders_pending ON reminders(completed, remind_at);
+
+        CREATE TABLE IF NOT EXISTS thunderstore_mods (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id      TEXT NOT NULL,
+            mod_name      TEXT NOT NULL,
+            channel_id    TEXT NOT NULL,
+            last_version  TEXT,
+            enabled       INTEGER DEFAULT 1,
+            created_at    TEXT DEFAULT (datetime('now')),
+            UNIQUE(guild_id, mod_name)
+        );
+        CREATE INDEX IF NOT EXISTS idx_thunderstore_enabled ON thunderstore_mods(enabled);
     `);
 }
 
-module.exports = { runMigrations };
+function addColumnIfNotExists(db, table, column, definition) {
+    const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+    if (!cols.some(c => c.name === column)) {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+}
+
+function runAlterMigrations(db) {
+    addColumnIfNotExists(db, 'guild_settings', 'mod_thunderstore', 'INTEGER DEFAULT 0');
+
+    // Enable leveling for existing guilds that still have the old default
+    db.exec(`UPDATE guild_settings SET mod_leveling = 1 WHERE mod_leveling = 0`);
+}
+
+module.exports = { runMigrations, runAlterMigrations };

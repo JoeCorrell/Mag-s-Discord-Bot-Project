@@ -2,6 +2,17 @@ const { EmbedBuilder } = require('discord.js');
 const { customEmbed } = require('../../utils/embedBuilder');
 const { replaceVariables } = require('../../utils/variables');
 
+const GENERAL_CHAT_CHANNEL = '1103418181621657666';
+
+const GREETINGS = [
+    `Hey everyone, ${'{user}'} just joined us! Give them a warm welcome!`,
+    `Welcome aboard, ${'{user}'}! We're glad to have you here. Say hi, everyone!`,
+    `Look who just showed up — ${'{user}'}! Welcome to the server!`,
+    `${'{user}'} has arrived! Let's make them feel at home!`,
+    `A wild ${'{user}'} appeared! Welcome to the community!`,
+    `${'{user}'}, welcome to the Ferret Community! We hope you enjoy your stay!`,
+];
+
 module.exports = {
     name: 'guildMemberAdd',
     once: false,
@@ -34,6 +45,19 @@ module.exports = {
             const data = { user: member.user, guild: member.guild };
             const dmMessage = replaceVariables(settings.welcome_dm_message, data);
             member.send(dmMessage).catch(() => {});
+        }
+
+        // General chat greeting
+        const generalChat = member.guild.channels.cache.get(GENERAL_CHAT_CHANNEL);
+        if (generalChat) {
+            const greeting = GREETINGS[Math.floor(Math.random() * GREETINGS.length)].replace('{user}', `${member}`);
+            const embed = new EmbedBuilder()
+                .setColor(0x5865F2)
+                .setDescription(greeting)
+                .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
+                .setFooter({ text: `Member #${member.guild.memberCount}` });
+
+            generalChat.send({ embeds: [embed] }).catch(() => {});
         }
 
         // Log member join

@@ -2,7 +2,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const logger = require('../utils/logger');
-const { runMigrations } = require('./migrations');
+const { runMigrations, runAlterMigrations } = require('./migrations');
 
 const dbPath = path.resolve(process.env.DB_PATH || './data/bot.db');
 const dir = path.dirname(dbPath);
@@ -18,6 +18,7 @@ db.pragma('synchronous = NORMAL');
 db.pragma('foreign_keys = ON');
 
 runMigrations(db);
+runAlterMigrations(db);
 
 db.settings = require('./repositories/guildSettingsRepo')(db);
 db.warnings = require('./repositories/warningsRepo')(db);
@@ -30,6 +31,7 @@ db.giveaways = require('./repositories/giveawaysRepo')(db);
 db.customCommands = require('./repositories/customCommandsRepo')(db);
 db.reminders = require('./repositories/remindersRepo')(db);
 db.reactionRoles = require('./repositories/reactionRolesRepo')(db);
+db.thunderstore = require('./repositories/thunderstoreRepo')(db);
 
 logger.success(`Database connected: ${dbPath}`);
 

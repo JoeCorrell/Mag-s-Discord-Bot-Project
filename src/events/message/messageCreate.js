@@ -1,6 +1,17 @@
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, PermissionFlagsBits } = require('discord.js');
+const fs = require('fs');
+const path = require('path');
 const config = require('../../../config/config');
 const { customEmbed } = require('../../utils/embedBuilder');
 const { checkSpam, checkLinks, checkBadWords, isExempt } = require('../../handlers/antiSpamHandler');
+
+const MOD_CHECK_CHANNEL = '1479563524731572354';
+
+function getCompatibleMods() {
+    const filePath = path.join(__dirname, '..', '..', '..', 'data', 'compatible-mods.json');
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return data.mods.map(m => m.toLowerCase());
+}
 
 module.exports = {
     name: 'messageCreate',
@@ -49,6 +60,109 @@ module.exports = {
                     }
                 }
 
+                return;
+            }
+        }
+
+        // Bug/issue report detection (skip ticket channels)
+        const isTicketChannel = settings.ticket_category_id && message.channel.parentId === settings.ticket_category_id;
+        if (settings.mod_automod && !isExempt(message, settings) && !isTicketChannel) {
+            const bugPattern = /\b(bug|issue)\b/i;
+            if (bugPattern.test(message.content)) {
+                const originalContent = message.content;
+                await message.delete().catch(() => {});
+
+                // Check ticket limit
+                const openTickets = client.db.tickets.getOpenByUser(message.guild.id, message.author.id);
+                if (openTickets.length >= config.limits.ticketsPerUser) {
+                    await message.channel.send(`${message.author}, you already have an open ticket. Please use it to report your bug/issue.`).then(msg => {
+                        setTimeout(() => msg.delete().catch(() => {}), 10000);
+                    }).catch(() => {});
+                    return;
+                }
+
+                // Create ticket channel under [TICKETS] category
+                const ticketNumber = client.db.tickets.getNextNumber(message.guild.id);
+                const channelOptions = {
+                    name: `bug-${ticketNumber}`,
+                    type: ChannelType.GuildText,
+                    permissionOverwrites: [
+                        { id: message.guild.id, deny: [PermissionFlagsBits.ViewChannel] },
+                        { id: message.author.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] },
+                        { id: client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels] },
+                    ],
+                };
+
+                if (settings.ticket_category_id) {
+                    channelOptions.parent = settings.ticket_category_id;
+                }
+
+                if (settings.ticket_support_role_id) {
+                    channelOptions.permissionOverwrites.push({
+                        id: settings.ticket_support_role_id,
+                        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
+                    });
+                }
+
+                const channel = await message.guild.channels.create(channelOptions).catch(() => null);
+                if (!channel) return;
+
+                client.db.tickets.create(message.guild.id, channel.id, message.author.id, ticketNumber, 'bug');
+
+                // Send welcome embed in the ticket
+                const ticketEmbed = customEmbed(0xED4245)
+                    .setTitle(`Bug Report #${ticketNumber}`)
+                    .setDescription(`${message.author}, your message was moved here.\nPlease describe your bug or issue in detail so our team can help.`)
+                    .addFields({ name: 'Original Message', value: originalContent.substring(0, 1024) })
+                    .setTimestamp();
+
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('ticket-close').setLabel('Close Ticket').setEmoji('\uD83D\uDD12').setStyle(ButtonStyle.Danger),
+                    new ButtonBuilder().setCustomId('ticket-claim').setLabel('Claim Ticket').setEmoji('\u2705').setStyle(ButtonStyle.Success),
+                );
+
+                const supportPing = settings.ticket_support_role_id ? `<@&${settings.ticket_support_role_id}>` : '';
+                await channel.send({ content: `${message.author} ${supportPing}`, embeds: [ticketEmbed], components: [row] });
+
+                // Notify in original channel
+                await message.channel.send(`${message.author}, a bug report ticket has been opened for you: ${channel}`).then(msg => {
+                    setTimeout(() => msg.delete().catch(() => {}), 10000);
+                }).catch(() => {});
+                return;
+            }
+        }
+
+        // Mod compatibility check
+        if (message.channel.id === MOD_CHECK_CHANNEL) {
+            const query = message.content.trim();
+            if (query.length > 0) {
+                const compatibleMods = getCompatibleMods();
+                const searchTerm = query.toLowerCase().replace(/[_\s-]/g, '');
+                const match = compatibleMods.find(m => m.replace(/[_\s-]/g, '') === searchTerm);
+                const partialMatches = compatibleMods.filter(m => m.replace(/[_\s-]/g, '').includes(searchTerm) || searchTerm.includes(m.replace(/[_\s-]/g, '')));
+
+                let embed;
+                if (match) {
+                    embed = customEmbed(0x57F287)
+                        .setTitle('Mod Compatible')
+                        .setDescription(`**${query}** has been tested and is compatible with our mods.`);
+                } else if (partialMatches.length > 0) {
+                    const matchList = partialMatches.map(m => `\`${m}\``).join(', ');
+                    embed = customEmbed(0xFEE75C)
+                        .setTitle('Possible Match')
+                        .setDescription(`**${query}** wasn't an exact match, but we found similar mods:\n${matchList}\n\nThese are confirmed compatible.`);
+                } else {
+                    embed = customEmbed(0xED4245)
+                        .setTitle('Not Tested')
+                        .setDescription(`**${query}** has not been tested for compatibility with our mods.\nIt may still work, but use at your own risk.`);
+                }
+
+                await message.reply({ embeds: [embed] }).then(msg => {
+                    setTimeout(() => {
+                        msg.delete().catch(() => {});
+                        message.delete().catch(() => {});
+                    }, 10000);
+                }).catch(() => {});
                 return;
             }
         }
@@ -108,7 +222,22 @@ module.exports = {
                     notifChannel.send({ embeds: [embed] }).catch(() => {});
                 }
 
-                // Check for role rewards
+                // Built-in role rewards by name
+                const autoRoles = {
+                    5: 'Apprentice',
+                    10: 'Executor',
+                    20: 'Strategist',
+                    30: 'Mentor',
+                };
+
+                if (autoRoles[newLevel] && message.member) {
+                    const role = message.guild.roles.cache.find(r => r.name === autoRoles[newLevel]);
+                    if (role && !message.member.roles.cache.has(role.id)) {
+                        await message.member.roles.add(role, `Reached Level ${newLevel}`).catch(() => {});
+                    }
+                }
+
+                // Check for custom role rewards
                 const reward = client.db.leveling.getRewardForLevel(message.guild.id, newLevel);
                 if (reward && message.member) {
                     const role = message.guild.roles.cache.get(reward.role_id);
